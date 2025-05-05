@@ -154,7 +154,7 @@
           document.getElementById("menuSection").style.display = "block";
           document.getElementById("ordersSection").style.display = "block";
           document.getElementById("dashboardSection").style.display = "block";
-          document.getElementById("restaurantInfo").innerHTML = ` 
+          document.getElementById("restaurantInfo").innerHTML = `
             <img src="${data.image}" class="w-full h-40 object-cover rounded mb-2" />
             <h4 class="text-xl font-bold">${data.name}</h4>
             <p>${data.description}</p>
@@ -170,58 +170,140 @@
       });
     }
 
-    function toggleStatus() {
-      const restaurantRef = ref(db, `restaurants/${currentUserId}`);
-      onValue(restaurantRef, snap => {
+    window.toggleStatus = function () {
+      const refPath = ref(db, `restaurants/${currentUserId}`);
+      onValue(refPath, snap => {
         const data = snap.val();
         const newStatus = data.status === 'opened' ? 'closed' : 'opened';
-        update(restaurantRef, { status: newStatus });
-      });
-    }
+        update(refPath, { status: newStatus });
+      }, { onlyOnce: true });
+    };
+
+    document.getElementById("registerRestaurantForm")?.addEventListener('submit', e => {
+      e.preventDefault();
+      const name = document.getElementById("restaurantName").value;
+      const image = document.getElementById("restaurantImage").value;
+      const description = document.getElementById("restaurantDescription").value;
+      const location = document.getElementById("restaurantLocation").value;
+      set(ref(db, `restaurants/${currentUserId}`), {
+        name, image, description, location, status: 'opened'
+      }).then(() => loadRestaurant());
+    });
+
+    document.getElementById("addMenuForm")?.addEventListener('submit', e => {
+      e.preventDefault();
+      const itemName = document.getElementById("itemName").value;
+      const itemPrice = parseFloat(document.getElementById("itemPrice").value);
+      const itemCategory = document.getElementById("itemCategory").value;
+      const itemImage = document.getElementById("itemImage").value;
+      const itemDescription = document.getElementById("itemDescription").value;
+      const refPath = ref(db, `restaurants/${currentUserId}/menu`);
+      push(refPath, {
+        name: itemName,
+        price: itemPrice,
+        category: itemCategory,
+        image: itemImage,
+        description: itemDescription
+      }).then(() => loadMenu());
+    });
+
+    document.getElementById("searchMenu").addEventListener('input', e => loadMenu());
 
     function loadMenu() {
-      const menuRef = ref(db, `restaurants/${currentUserId}/menu`);
-      onValue(menuRef, snap => {
+      const searchQuery = document.getElementById("searchMenu").value.toLowerCase();
+      const refPath = ref(db, `restaurants/${currentUserId}/menu`);
+      onValue(refPath, snap => {
         const data = snap.val();
+        const list = document.getElementById("menuItemsList");
+        list.innerHTML = '';
         if (data) {
-          const menuItemsList = document.getElementById("menuItemsList");
-          menuItemsList.innerHTML = '';
-          for (let key in data) {
-            const item = data[key];
-            menuItemsList.innerHTML += `
-              <div class="bg-gray-100 p-4 rounded shadow">
+          Object.entries(data).forEach(([id, item]) => {
+            if (item.name.toLowerCase().includes(searchQuery)) {
+              const div = document.createElement("div");
+              div.className = "bg-white shadow p-4 rounded";
+              div.innerHTML = `
                 <img src="${item.image}" class="w-full h-40 object-cover rounded mb-2" />
-                <h4 class="text-xl">${item.name}</h4>
-                <p class="text-gray-600">${item.description}</p>
-                <p class="text-orange-500">R${item.price}</p>
-              </div>
-            `;
-          }
+                <h4 class="font-semibold">${item.name}</h4>
+                <p>${item.description}</p>
+                <p class="font-bold">R${item.price}</p>
+              `;
+              list.appendChild(div);
+            }
+          });
         }
       });
     }
 
     function loadOrders() {
-      const ordersRef = ref(db, 'orders');
-      onValue(ordersRef, snap => {
-        const ordersData = snap.val();
-        if (ordersData) {
-          const orderListContainer = document.getElementById("ordersList");
-          orderListContainer.innerHTML = '';
-          for (let orderKey in ordersData) {
-            const order = ordersData[orderKey];
-            orderListContainer.innerHTML += `
-              <div class="p-4 bg-gray-200 rounded shadow">
-                <p><strong>Order ID:</strong> ${orderKey}</p>
-                <p><strong>Customer:</strong> ${order.customer}</p>
-                <p><strong>Status:</strong> ${order.status}</p>
-                <p><strong>Total:</strong> R${order.total}</p>
-              </div>
+      const refPath = ref(db, `restaurants/${currentUserId}/orders`);
+      onValue(refPath, snap => {
+        const data = snap.val();
+        const list = document.getElementById("ordersList");
+        const dashboardOrders = document.getElementById("dashboardOrders");
+        list.innerHTML = '';
+        let total = 0, count = 0;
+        const filter = document.getElementById("orderFilter").value;
+        const chartData = { pending: 0, shipped: 0 };
+
+        if (data) {
+          Object.entries(data).forEach(([id, order]) => {
+            if (filter !== "all" && order.status !== filter) return;
+            count++;
+            total += order.totalPrice;
+            chartData[order.status]++;
+            const div = document.createElement("div");
+            div.className = "p-4 bg-white shadow rounded";
+            div.innerHTML = `
+              <h4 class="text-lg font-semibold">Order #${id}</h4>
+              <p><strong>Customer:</strong> ${order.customerName}</p>
+              <p><strong>Items:</strong> ${order.items.map(i => i.name).join(", ")}</p>
+              <p><strong>Total Price:</strong> R${order.totalPrice}</p>
+              <p><strong>Status:</strong> <span class="font-semibold ${order.status === 'pending' ? 'text-yellow-500' : 'text-green-500'}">${order.status}</span></p>
+              <button class="bg-blue-500 text-white px-2 py-1 mt-2 rounded" data-id="${id}">Mark as Shipped</button>
             `;
-          }
+            list.appendChild(div);
+          });
         }
+
+        document.getElementById("totalOrders").innerText = count;
+        document.getElementById("totalRevenue").innerText = total.toFixed(2);
+
+        // Display orders on dashboard
+        dashboardOrders.innerHTML = `
+          <div class="bg-white p-4 shadow rounded">
+            <h4 class="font-semibold">Pending Orders</h4>
+            <p class="text-xl">${chartData.pending}</p>
+          </div>
+          <div class="bg-white p-4 shadow rounded">
+            <h4 class="font-semibold">Shipped Orders</h4>
+            <p class="text-xl">${chartData.shipped}</p>
+          </div>
+        `;
+
+        if (orderChart) orderChart.destroy();
+        orderChart = new Chart(document.getElementById("orderChart").getContext("2d"), {
+          type: "doughnut",
+          data: {
+            labels: ["Pending", "Shipped"],
+            datasets: [{
+              data: [chartData.pending, chartData.shipped],
+              backgroundColor: ["#facc15", "#22c55e"]
+            }]
+          }
+        });
       });
     }
+
+    window.toggleStatus = function () {
+      const refPath = ref(db, `restaurants/${currentUserId}`);
+      onValue(refPath, snap => {
+        const data = snap.val();
+        const newStatus = data.status === 'opened' ? 'closed' : 'opened';
+        update(refPath, { status: newStatus });
+      }, { onlyOnce: true });
+    };
   </script>
+
 </body>
 </html>
+
